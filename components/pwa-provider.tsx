@@ -3,7 +3,29 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { Bell, BellOff, Download, X } from "lucide-react"
+import { Bell, BellOff, Download, X, Share } from "lucide-react"
+
+const PWA_DISMISS_KEY = "zampesicure_pwa_dismissed"
+const PWA_DISMISS_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+
+function isPwaDismissed(): boolean {
+  try {
+    const ts = localStorage.getItem(PWA_DISMISS_KEY)
+    if (!ts) return false
+    return Date.now() - parseInt(ts, 10) < PWA_DISMISS_TTL_MS
+  } catch {
+    return false
+  }
+}
+
+function isIos(): boolean {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent)
+}
+
+function isInStandaloneMode(): boolean {
+  return window.matchMedia("(display-mode: standalone)").matches ||
+    ("standalone" in window.navigator && (window.navigator as { standalone?: boolean }).standalone === true)
+}
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -20,6 +42,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 export function PWAProvider() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [showInstallBanner, setShowInstallBanner] = useState(false)
+  const [showIosBanner, setShowIosBanner] = useState(false)
   const [showPushBanner, setShowPushBanner] = useState(false)
 
   useEffect(() => {
@@ -28,23 +51,34 @@ export function PWAProvider() {
       navigator.serviceWorker.register("/sw.js").catch(() => {})
     }
 
-    // Already installed as PWA — skip install banner
-    if (window.matchMedia("(display-mode: standalone)").matches) {
+    // Already installed as PWA — only handle push
+    if (isInStandaloneMode()) {
       initPushAfterLogin()
       return
     }
 
-    // Install prompt
+    if (isPwaDismissed()) {
+      // Still check push for users who dismissed install
+      initPushAfterLogin()
+      return
+    }
+
+    // iOS: show manual share-sheet instructions
+    if (isIos()) {
+      setShowIosBanner(true)
+      initPushAfterLogin()
+      return
+    }
+
+    // Android/Desktop: listen for beforeinstallprompt
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault()
       setDeferredPrompt(e as BeforeInstallPromptEvent)
-      const dismissed = localStorage.getItem("zampesicure_pwa_dismissed")
-      if (!dismissed) setShowInstallBanner(true)
+      setShowInstallBanner(true)
     }
     window.addEventListener("beforeinstallprompt", handleBeforeInstall)
     window.addEventListener("appinstalled", () => setShowInstallBanner(false))
 
-    // Check push permission for logged-in users
     initPushAfterLogin()
 
     return () => {
@@ -127,7 +161,8 @@ export function PWAProvider() {
 
   const handleDismissInstall = () => {
     setShowInstallBanner(false)
-    localStorage.setItem("zampesicure_pwa_dismissed", Date.now().toString())
+    setShowIosBanner(false)
+    localStorage.setItem(PWA_DISMISS_KEY, Date.now().toString())
   }
 
   return (
@@ -150,12 +185,7 @@ export function PWAProvider() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDismissPush}
-                className="gap-1.5 text-xs"
-              >
+              <Button variant="ghost" size="sm" onClick={handleDismissPush} className="gap-1.5 text-xs">
                 <BellOff className="h-3.5 w-3.5" />
                 Non ora
               </Button>
@@ -168,7 +198,7 @@ export function PWAProvider() {
         </div>
       )}
 
-      {/* Install Banner */}
+      {/* Android/Desktop Install Banner */}
       {showInstallBanner && !showPushBanner && (
         <div className="fixed bottom-0 left-0 right-0 z-[70] border-t border-border bg-card shadow-xl">
           <div className="container mx-auto flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -184,18 +214,38 @@ export function PWAProvider() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDismissInstall}
-                className="gap-1.5 text-xs"
-              >
+              <Button variant="ghost" size="sm" onClick={handleDismissInstall} className="gap-1.5 text-xs">
                 <X className="h-3.5 w-3.5" />
                 Non ora
               </Button>
               <Button size="sm" onClick={handleInstall} className="gap-1.5 text-xs">
                 <Download className="h-3.5 w-3.5" />
                 Installa
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* iOS Install Banner */}
+      {showIosBanner && !showPushBanner && (
+        <div className="fixed bottom-0 left-0 right-0 z-[70] border-t border-border bg-card shadow-xl">
+          <div className="container mx-auto flex flex-col gap-3 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                  <Share className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Installa ZampeSicure</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Tocca <span className="font-semibold">Condividi</span> in Safari, poi{" "}
+                    <span className="font-semibold">&ldquo;Aggiungi a Home&rdquo;</span> per installare l&apos;app.
+                  </p>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" onClick={handleDismissInstall} className="h-8 w-8 shrink-0">
+                <X className="h-4 w-4" />
               </Button>
             </div>
           </div>

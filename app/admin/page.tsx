@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Shield, FileText, Save, Loader2, CheckCircle, Lock, Users, UserX, UserCheck, Flag, AlertTriangle, Check, X, MessageCircle, Eye, Ban, Clock, Search, ShieldCheck, ShieldOff, Building2, Phone, Mail, Globe, Dog, Cat, Bird, Tag, CheckCircle2, MapPin, Pencil, Trash2, Sparkles, ThumbsUp, ThumbsDown, ImageIcon, AlertCircle, ChevronDown, ChevronUp } from "lucide-react"
+import { Shield, FileText, Save, Loader2, CheckCircle, Lock, Users, UserX, UserCheck, Flag, AlertTriangle, Check, X, MessageCircle, Eye, Ban, Clock, Search, ShieldCheck, ShieldOff, Building2, Phone, Mail, Globe, Dog, Cat, Bird, Tag, CheckCircle2, MapPin, Pencil, Trash2, Sparkles, ThumbsUp, ThumbsDown, ImageIcon, AlertCircle, ChevronDown, ChevronUp, Settings } from "lucide-react"
 import { RichTextEditor } from "@/components/rich-text-editor"
 
 interface ContactRequest {
@@ -57,6 +57,7 @@ type AiMatch = {
 }
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import Link from "next/link"
@@ -118,6 +119,14 @@ interface AllUser {
 }
 
 export default function AdminPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminPageContent />
+    </Suspense>
+  )
+}
+
+function AdminPageContent() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [regolamento, setRegolamento] = useState("")
@@ -162,7 +171,7 @@ export default function AdminPage() {
   const [suspendUserDialog, setSuspendUserDialog] = useState<{ open: boolean; userId: string | null; userName: string }>({ open: false, userId: null, userName: "" })
   const [banReason, setBanReason] = useState("")
   const [suspendReason, setSuspendReason] = useState("")
-  const [suspendDuration, setSuspendDuration] = useState("24h")
+  const [suspendDays, setSuspendDays] = useState<string>("7")
   const [processingUserAction, setProcessingUserAction] = useState(false)
   const [togglingModeratorId, setTogglingModeratorId] = useState<string | null>(null)
 
@@ -172,7 +181,49 @@ export default function AdminPage() {
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null)
   const [processingMatchId, setProcessingMatchId] = useState<string | null>(null)
 
+// Admin settings state
+const [aiMatchEnabled, setAiMatchEnabled] = useState(true)
+const [aiMatchRadiusKm, setAiMatchRadiusKm] = useState(30)
+const [isSavingSettings, setIsSavingSettings] = useState(false)
+const [settingsSaved, setSettingsSaved] = useState(false)
+
+const [testEmailTo, setTestEmailTo] = useState("")
+const [isSendingTestEmail, setIsSendingTestEmail] = useState(false)
+const [testEmailResult, setTestEmailResult] = useState<string | null>(null)
+
+// Push test
+const [pushTarget, setPushTarget] = useState<"all" | "user">("user")
+const [pushUserId, setPushUserId] = useState("")
+const [pushTitle, setPushTitle] = useState("Notifica di prova")
+const [pushBody, setPushBody] = useState("Questa è una notifica push di test da ZampeSicure.")
+const [pushUrl, setPushUrl] = useState("/")
+
+const [isSendingPushTest, setIsSendingPushTest] = useState(false)
+const [pushTestResult, setPushTestResult] = useState<string | null>(null)
+
+// Stats
+const [stats, setStats] = useState<any>(null)
+const [isLoadingStats, setIsLoadingStats] = useState(false)
+
+
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialTab = searchParams.get("tab") || "posts"
+  const [activeTab, setActiveTab] = useState<string>(initialTab)
+  const [settingsOpen, setSettingsOpen] = useState(true)
+
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    if (tab && tab !== activeTab) setActiveTab(tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
+  const setTab = (tab: string) => {
+    setActiveTab(tab)
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("tab", tab)
+    router.replace(`/admin?${params.toString()}`)
+  }
 
   useEffect(() => {
     const checkAdmin = async () => {
@@ -688,15 +739,7 @@ export default function AdminPage() {
     if (!suspendUserDialog.userId || !suspendReason.trim()) return
     setProcessingUserAction(true)
     const supabase = createClient()
-    const durationMap: Record<string, number> = {
-      "24h": 1,
-      "48h": 2,
-      "3d": 3,
-      "1w": 7,
-      "2w": 14,
-      "1m": 30,
-    }
-    const days = durationMap[suspendDuration] ?? 1
+    const days = Math.max(1, Math.min(365, parseInt(String(suspendDays || '1'), 10) || 1))
     const suspendedUntil = new Date()
     suspendedUntil.setDate(suspendedUntil.getDate() + days)
     await supabase.from("banned_users").upsert({
@@ -710,7 +753,7 @@ export default function AdminPage() {
     setProcessingUserAction(false)
     setSuspendUserDialog({ open: false, userId: null, userName: "" })
     setSuspendReason("")
-    setSuspendDuration("24h")
+    setSuspendDays("7")
   }
 
   const fetchAiMatches = async () => {
@@ -781,6 +824,109 @@ export default function AdminPage() {
     setTimeout(() => setSaveSuccessPrivacy(false), 3000)
   }
 
+const loadAdminSettings = async () => {
+  try {
+    const res = await fetch("/api/admin/settings", { method: "GET" })
+    if (!res.ok) return
+    const data = await res.json()
+    if (typeof data?.ai_match_enabled === "boolean") setAiMatchEnabled(data.ai_match_enabled)
+    if (typeof data?.ai_match_radius_km === "number") setAiMatchRadiusKm(data.ai_match_radius_km)
+  } catch {
+    // ignore
+  }
+}
+
+const saveAdminSettings = async () => {
+  setIsSavingSettings(true)
+  setSettingsSaved(false)
+  try {
+    const res = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ai_match_enabled: aiMatchEnabled,
+        ai_match_radius_km: aiMatchRadiusKm,
+      }),
+    })
+    if (!res.ok) throw new Error("save_failed")
+    setSettingsSaved(true)
+    setTimeout(() => setSettingsSaved(false), 2500)
+  } catch {
+    // ignore
+  } finally {
+    setIsSavingSettings(false)
+  }
+}
+
+const sendTestEmail = async () => {
+  setIsSendingTestEmail(true)
+  setTestEmailResult(null)
+  try {
+    const res = await fetch("/api/admin/test-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: testEmailTo }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || "send_failed")
+    setTestEmailResult("Email inviata ✅")
+  } catch (e: any) {
+    setTestEmailResult("Errore invio email ❌")
+  } finally {
+    setIsSendingTestEmail(false)
+  }
+}
+
+const sendPushTest = async () => {
+  setIsSendingPushTest(true)
+  setPushTestResult(null)
+  try {
+    const res = await fetch("/api/admin/push-test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target: pushTarget,
+        userId: pushUserId,
+        title: pushTitle,
+        body: pushBody,
+        url: pushUrl,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || "push_failed")
+    setPushTestResult(pushTarget === "all" ? "Push inviata a tutti ✅" : "Push inviata ✅")
+  } catch {
+    setPushTestResult("Errore invio push ❌")
+  } finally {
+    setIsSendingPushTest(false)
+  }
+}
+
+const loadStats = async () => {
+  setIsLoadingStats(true)
+  try {
+    const res = await fetch("/api/admin/stats", { method: "GET" })
+    const data = await res.json()
+    setStats(data)
+  } catch {
+    setStats(null)
+  } finally {
+    setIsLoadingStats(false)
+  }
+}
+
+useEffect(() => {
+  if (!isAdmin) return
+  if (activeTab === "settings" || activeTab === "push-test") {
+    loadAdminSettings()
+  }
+  if (activeTab === "stats") {
+    loadStats()
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activeTab, isAdmin])
+
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
@@ -812,93 +958,156 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <Tabs defaultValue="regolamento" className="space-y-6">
-            <TabsList>
-              <TabsTrigger value="regolamento" className="gap-2">
-                <FileText className="h-4 w-4" />
-                Regolamento
-              </TabsTrigger>
-              <TabsTrigger value="privacy" className="gap-2">
-                <Lock className="h-4 w-4" />
-                Privacy Policy
-              </TabsTrigger>
-              <TabsTrigger value="users" className="gap-2">
-                <Users className="h-4 w-4" />
-                Utenti
-                {bannedUsers.length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
-                    {bannedUsers.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="flags" className="gap-2">
-                <Flag className="h-4 w-4" />
-                Segnalazioni
-                {reportFlags.length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
-                    {reportFlags.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="chats" className="gap-2">
-                <MessageCircle className="h-4 w-4" />
-                Chat
-                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
-                  {conversations.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="message-reports" className="gap-2">
-                <Ban className="h-4 w-4" />
-                Messaggi
-                {messageReports.length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
-                    {messageReports.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="sponsors" className="gap-2">
-                <Building2 className="h-4 w-4" />
-                Sponsor
-                {sponsorRequests.length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
-                    {sponsorRequests.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="partners" asChild>
-                <Link href="/admin/partners" className="gap-2">
-                  <Tag className="h-4 w-4" />
-                  Partner
-                </Link>
-              </TabsTrigger>
-              <TabsTrigger value="posts" className="gap-2">
-                <FileText className="h-4 w-4" />
-                Post
-                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
-                  {allReports.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="ai-match" className="gap-2">
-                <Sparkles className="h-4 w-4" />
-                AI Match
-                {aiMatches.filter((m) => m.status === "pending").length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
-                    {aiMatches.filter((m) => m.status === "pending").length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="contacts" className="gap-2">
-                <Mail className="h-4 w-4" />
-                Richieste di Contatto
-                {contactRequests.filter((c) => c.status === "new").length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
-                    {contactRequests.filter((c) => c.status === "new").length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+          <Tabs value={activeTab} onValueChange={setTab} className="space-y-6">
+<div className="flex flex-col gap-6 md:flex-row">
+  <aside className="md:w-72">
+    {/* Mobile: selector tab */}
+    <div className="md:hidden">
+      <Select value={activeTab} onValueChange={setTab}>
+        <SelectTrigger>
+          <SelectValue placeholder="Sezione admin" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="posts">Segnalazioni</SelectItem>
+          <SelectItem value="users">Utenti</SelectItem>
+          <SelectItem value="ai-match">Log AI Match</SelectItem>
+          <SelectItem value="stats">Statistiche</SelectItem>
+          <SelectItem value="sponsors">Sponsor</SelectItem>
+          <SelectItem value="contacts">Richieste Contatto</SelectItem>
+          <SelectItem value="chats">Chat</SelectItem>
+          <SelectItem value="message-reports">Segnalazioni Messaggi</SelectItem>
+          <SelectItem value="flags">Moderazione Segnalazioni</SelectItem>
+          <SelectItem value="settings">Impostazioni</SelectItem>
+          <SelectItem value="regolamento">Regolamento</SelectItem>
+          <SelectItem value="privacy">Privacy Policy</SelectItem>
+          <SelectItem value="push-test">Push di prova</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
 
-            <TabsContent value="regolamento">
+    {/* Desktop: sidebar verticale */}
+    <TabsList className="hidden h-auto w-full flex-col items-stretch gap-1 bg-transparent p-0 md:flex">
+      <TabsTrigger value="posts" className="justify-start gap-2">
+        <FileText className="h-4 w-4" />
+        Segnalazioni
+        <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-xs">
+          {allReports.length}
+        </Badge>
+      </TabsTrigger>
+
+      <TabsTrigger value="users" className="justify-start gap-2">
+        <Users className="h-4 w-4" />
+        Utenti
+        {bannedUsers.length > 0 && (
+          <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+            {bannedUsers.length}
+          </Badge>
+        )}
+      </TabsTrigger>
+
+      <TabsTrigger value="ai-match" className="justify-start gap-2">
+        <Sparkles className="h-4 w-4" />
+        Log AI Match
+        {aiMatches.filter((m) => m.status === "pending").length > 0 && (
+          <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+            {aiMatches.filter((m) => m.status === "pending").length}
+          </Badge>
+        )}
+      </TabsTrigger>
+
+      <TabsTrigger value="stats" className="justify-start gap-2">
+        <Shield className="h-4 w-4" />
+        Statistiche
+      </TabsTrigger>
+
+      <TabsTrigger value="sponsors" className="justify-start gap-2">
+        <Building2 className="h-4 w-4" />
+        Sponsor
+        {sponsorRequests.length > 0 && (
+          <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+            {sponsorRequests.length}
+          </Badge>
+        )}
+      </TabsTrigger>
+
+      <TabsTrigger value="contacts" className="justify-start gap-2">
+        <Mail className="h-4 w-4" />
+        Richieste Contatto
+        {contactRequests.filter((c) => c.status === "new").length > 0 && (
+          <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+            {contactRequests.filter((c) => c.status === "new").length}
+          </Badge>
+        )}
+      </TabsTrigger>
+
+      <TabsTrigger value="chats" className="justify-start gap-2">
+        <MessageCircle className="h-4 w-4" />
+        Chat
+        <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-xs">
+          {conversations.length}
+        </Badge>
+      </TabsTrigger>
+
+      <TabsTrigger value="message-reports" className="justify-start gap-2">
+        <Ban className="h-4 w-4" />
+        Messaggi
+        {messageReports.length > 0 && (
+          <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+            {messageReports.length}
+          </Badge>
+        )}
+      </TabsTrigger>
+
+      <TabsTrigger value="flags" className="justify-start gap-2">
+        <Flag className="h-4 w-4" />
+        Moderazione
+        {reportFlags.length > 0 && (
+          <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+            {reportFlags.length}
+          </Badge>
+        )}
+      </TabsTrigger>
+
+      <TabsTrigger value="partners" asChild className="justify-start gap-2">
+        <Link href="/admin/partners" className="flex w-full items-center gap-2">
+          <Tag className="h-4 w-4" />
+          Partner
+        </Link>
+      </TabsTrigger>
+
+      <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen} className="mt-3 rounded-lg border bg-muted/20 p-2">
+        <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm font-semibold">
+          <span className="flex items-center gap-2">
+            <Lock className="h-4 w-4" />
+            IMPOSTAZIONI
+          </span>
+          {settingsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2 space-y-1">
+          <TabsTrigger value="settings" className="w-full justify-start gap-2">
+            <Settings className="h-4 w-4" />
+            Generali
+          </TabsTrigger>
+          <TabsTrigger value="regolamento" className="w-full justify-start gap-2">
+            <FileText className="h-4 w-4" />
+            Regolamento
+          </TabsTrigger>
+          <TabsTrigger value="privacy" className="w-full justify-start gap-2">
+            <Lock className="h-4 w-4" />
+            Privacy Policy
+          </TabsTrigger>
+          <TabsTrigger value="push-test" className="w-full justify-start gap-2">
+            <MapPin className="h-4 w-4" />
+            Push di prova
+          </TabsTrigger>
+        </CollapsibleContent>
+      </Collapsible>
+    </TabsList>
+  </aside>
+
+  <section className="flex-1">
+
+<TabsContent value="regolamento">
               <Card>
                 <CardHeader>
                   <CardTitle>Modifica Regolamento</CardTitle>
@@ -2204,6 +2413,283 @@ export default function AdminPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+<TabsContent value="settings">
+  <Card>
+    <CardHeader>
+      <CardTitle>Impostazioni</CardTitle>
+      <CardDescription>Configura AI Match e invio email di test.</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>MATCH AI</Label>
+          <Select
+            value={aiMatchEnabled ? "on" : "off"}
+            onValueChange={(v) => setAiMatchEnabled(v === "on")}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="on">Attivo</SelectItem>
+              <SelectItem value="off">Disattivo</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Raggio in KM per MATCH AI (default 30)</Label>
+          <Input
+            type="number"
+            min={1}
+            max={300}
+            value={aiMatchRadiusKm}
+            onChange={(e) => setAiMatchRadiusKm(Number(e.target.value || 0))}
+          />
+          <p className="text-xs text-muted-foreground">Consigliato: 10–50 km.</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button onClick={saveAdminSettings} disabled={isSavingSettings}>
+          {isSavingSettings ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Salvo...
+            </>
+          ) : (
+            <>
+              <Save className="mr-2 h-4 w-4" />
+              Salva impostazioni
+            </>
+          )}
+        </Button>
+
+        {settingsSaved && (
+          <span className="flex items-center gap-2 text-sm text-accent">
+            <CheckCircle className="h-4 w-4" />
+            Salvato!
+          </span>
+        )}
+      </div>
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Mail className="h-4 w-4" />
+          <h3 className="font-semibold">Invia email di test</h3>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <Input
+            type="email"
+            placeholder="es: ale@gmail.com"
+            value={testEmailTo}
+            onChange={(e) => setTestEmailTo(e.target.value)}
+          />
+          <Button
+            onClick={sendTestEmail}
+            disabled={!testEmailTo || isSendingTestEmail}
+          >
+            {isSendingTestEmail ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Invio...
+              </>
+            ) : (
+              "Invia"
+            )}
+          </Button>
+        </div>
+
+        {testEmailResult && (
+          <p className="text-sm text-muted-foreground">{testEmailResult}</p>
+        )}
+      </div>
+    </CardContent>
+  </Card>
+</TabsContent>
+
+<TabsContent value="push-test">
+  <Card>
+    <CardHeader>
+      <CardTitle>Notifiche push di prova</CardTitle>
+      <CardDescription>Invia una notifica di test a un utente specifico o a tutti.</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Destinatari</Label>
+          <Select value={pushTarget} onValueChange={(v) => setPushTarget(v as any)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="user">Utente specifico</SelectItem>
+              <SelectItem value="all">Tutti gli utenti</SelectItem>
+            </SelectContent>
+          </Select>
+          {pushTarget === "user" && (
+            <div className="mt-2 space-y-2">
+              <Label>User ID (UUID)</Label>
+              <Input
+                placeholder="es: 2f4b1c3d-...."
+                value={pushUserId}
+                onChange={(e) => setPushUserId(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Suggerimento: copia l&apos;ID dalla tab Utenti.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label>URL apertura</Label>
+          <Input
+            placeholder="/segnalazioni/..."
+            value={pushUrl}
+            onChange={(e) => setPushUrl(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Titolo</Label>
+          <Input value={pushTitle} onChange={(e) => setPushTitle(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label>Messaggio</Label>
+          <Input value={pushBody} onChange={(e) => setPushBody(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={sendPushTest}
+          disabled={isSendingPushTest || (pushTarget === "user" && !pushUserId)}
+        >
+          {isSendingPushTest ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Invio...
+            </>
+          ) : (
+            "Invia push"
+          )}
+        </Button>
+
+        {pushTestResult && (
+          <p className="text-sm text-muted-foreground">{pushTestResult}</p>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Nota: l&apos;utente deve aver accettato le notifiche push (subscription presente).
+      </p>
+    </CardContent>
+  </Card>
+</TabsContent>
+
+<TabsContent value="stats">
+  <Card>
+    <CardHeader>
+      <CardTitle>Statistiche</CardTitle>
+      <CardDescription>Panoramica piattaforma (utenti, segnalazioni, device, utilizzo).</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-6">
+      {isLoadingStats ? (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Caricamento...
+        </div>
+      ) : !stats ? (
+        <p className="text-sm text-muted-foreground">Nessun dato disponibile.</p>
+      ) : (
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Utenti</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.totalUsers}</div>
+                <p className="text-xs text-muted-foreground">Totale registrati</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Segnalazioni</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.totalReports}</div>
+                <p className="text-xs text-muted-foreground">Totale create</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Tempo utilizzo</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.totalUsageHours}h</div>
+                <p className="text-xs text-muted-foreground">
+                  Totale stimato (ultimi 30 giorni)
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Città (Top)</CardTitle>
+                <CardDescription>Da segnalazioni</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {(stats.topCities || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nessun dato.</p>
+                ) : (
+                  (stats.topCities || []).map((c: any) => (
+                    <div key={c.city} className="flex items-center justify-between text-sm">
+                      <span className="truncate">{c.city}</span>
+                      <Badge variant="secondary">{c.count}</Badge>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Dispositivi</CardTitle>
+                <CardDescription>Da tracking app (beta)</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {(stats.devices || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nessun dato (tracking non ancora popolato).</p>
+                ) : (
+                  (stats.devices || []).map((d: any) => (
+                    <div key={d.device} className="flex items-center justify-between text-sm">
+                      <span className="capitalize">{d.device}</span>
+                      <Badge variant="secondary">{d.count}</Badge>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Per “tempo di utilizzo” e “dispositivi” serve il tracking sessioni (incluso in questa patch).
+          </p>
+        </>
+      )}
+    </CardContent>
+  </Card>
+</TabsContent>
+
+  </section>
+</div>
           </Tabs>
           <AlertDialog open={deleteReportDialog.open} onOpenChange={(open) => setDeleteReportDialog({ open, reportId: deleteReportDialog.reportId })}>
             <AlertDialogContent>
@@ -2265,7 +2751,7 @@ export default function AdminPage() {
           </Dialog>
 
           {/* ===== DIALOG: SOSPENDI UTENTE ===== */}
-          <Dialog open={suspendUserDialog.open} onOpenChange={(open) => { setSuspendUserDialog((p) => ({ ...p, open })); if (!open) { setSuspendReason(""); setSuspendDuration("24h") } }}>
+          <Dialog open={suspendUserDialog.open} onOpenChange={(open) => { setSuspendUserDialog((p) => ({ ...p, open })); if (!open) { setSuspendReason(""); setSuspendDays("7") } }}>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -2278,20 +2764,17 @@ export default function AdminPage() {
               </DialogHeader>
               <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label>Durata sospensione</Label>
-                  <Select value={suspendDuration} onValueChange={setSuspendDuration}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="24h">24 ore</SelectItem>
-                      <SelectItem value="48h">48 ore</SelectItem>
-                      <SelectItem value="3d">3 giorni</SelectItem>
-                      <SelectItem value="1w">1 settimana</SelectItem>
-                      <SelectItem value="2w">2 settimane</SelectItem>
-                      <SelectItem value="1m">1 mese</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="suspend-days">Durata sospensione (giorni)</Label>
+                  <Input
+                    id="suspend-days"
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={suspendDays}
+                    onChange={(e) => setSuspendDays(e.target.value)}
+                    placeholder="Es. 7"
+                  />
+                  <p className="text-xs text-muted-foreground">Durante la sospensione l'utente non può inviare nuove segnalazioni.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="suspend-reason">Motivazione <span className="text-destructive">*</span></Label>
@@ -2305,7 +2788,7 @@ export default function AdminPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => { setSuspendUserDialog({ open: false, userId: null, userName: "" }); setSuspendReason(""); setSuspendDuration("24h") }}>
+                <Button variant="outline" onClick={() => { setSuspendUserDialog({ open: false, userId: null, userName: "" }); setSuspendReason(""); setSuspendDays("7") }}>
                   Annulla
                 </Button>
                 <Button
